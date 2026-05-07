@@ -3,53 +3,60 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"user-service/internal/response"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 )
 
-var SECRET_KEY = []byte("mysecretkeymysecretkeymysecretkey12")
+func JWTMiddleware(secret string) echo.MiddlewareFunc {
 
-func JWTMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
 
-		authHeader := c.Request().Header.Get("Authorization")
+		return func(c echo.Context) error {
 
-		if authHeader == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{
-				"error": "Missing Authorization header",
+			authHeader := c.Request().Header.Get("Authorization")
+
+			// Missing header
+			if authHeader == "" {
+				response.SendError(c.Response().Writer, http.StatusUnauthorized, "user unauthorized")
+				return nil
+			}
+
+			// Invalid format
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				response.SendError(c.Response().Writer, http.StatusUnauthorized, "invalid authorization format")
+				return nil
+			}
+
+			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+				return []byte(secret), nil
 			})
+
+			// Invalid token
+			if err != nil || !token.Valid {
+				response.SendError(c.Response().Writer, http.StatusUnauthorized, "invalid token")
+				return nil
+			}
+
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				response.SendError(c.Response().Writer, http.StatusUnauthorized, "invalid token claims")
+				return nil
+			}
+
+			email, ok := claims["sub"].(string)
+			if !ok {
+				response.SendError(c.Response().Writer, http.StatusUnauthorized, "invalid token payload")
+				return nil
+			}
+
+			// attach user to context
+			c.Set("email", email)
+
+			return next(c)
 		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return SECRET_KEY, nil
-		})
-
-		if err != nil || !token.Valid {
-			return c.JSON(http.StatusUnauthorized, map[string]string{
-				"error": "Invalid token",
-			})
-		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			return c.JSON(http.StatusUnauthorized, map[string]string{
-				"error": "Invalid claims",
-			})
-		}
-
-		email, ok := claims["sub"].(string)
-		if !ok {
-			return c.JSON(http.StatusUnauthorized, map[string]string{
-				"error": "Invalid token payload",
-			})
-		}
-
-		//Set email in context
-		c.Set("email", email)
-
-		return next(c)
 	}
 }
