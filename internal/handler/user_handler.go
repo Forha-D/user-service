@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"time"
 
+	appErr "user-service/internal/errors"
 	"user-service/internal/model"
 	"user-service/internal/service"
 
@@ -29,9 +32,12 @@ func (h *UserHandler) GetProfile(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Unauthorized"})
 	}
 
-	//call service to get user profile
-	user, err := h.service.GetProfile(email)
+	ctx := c.Request().Context()
+	user, err := h.service.GetProfile(ctx, email)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return c.JSON(http.StatusGatewayTimeout, map[string]string{"error": "Request timed out"})
+		}
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "User not found"})
 	}
 
@@ -60,15 +66,20 @@ func (h *UserHandler) CreateUser(c echo.Context) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
 
+	ctx := c.Request().Context()
 	// 4. Save user
-	err := h.service.CreateUser(&user)
+	err := h.service.CreateUser(ctx, &user)
 
 	if err != nil {
-
-		// Handle duplicate user
-		if err.Error() == "user already exists" {
+		if errors.Is(err, appErr.ErrUserAlreadyExists) {
 			return c.JSON(http.StatusConflict, map[string]string{
 				"error": err.Error(),
+			})
+		}
+
+		if errors.Is(err, context.DeadlineExceeded) {
+			return c.JSON(http.StatusGatewayTimeout, map[string]string{
+				"error": "Request timed out",
 			})
 		}
 
@@ -106,9 +117,15 @@ func (h *UserHandler) UpdateProfile(c echo.Context) error {
 	// 3. Add updatedAt
 	body["updatedAt"] = time.Now()
 
+	ctx := c.Request().Context()
 	// 4. Update in DB
-	err := h.service.UpdateProfile(email, body)
+	err := h.service.UpdateProfile(ctx, email, body)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return c.JSON(http.StatusGatewayTimeout, map[string]string{
+				"error": "Request timed out",
+			})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "Update failed",
 		})

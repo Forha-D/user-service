@@ -38,7 +38,7 @@ func main() {
 
 	//3. Initialize layers
 	repo := repository.NewUserRepository(userCollection)
-	svc := service.NewUserService(repo)
+	svc := service.NewUserService(repo, cfg.DBTimeout)
 	h := handler.NewUserHandler(svc)
 
 	healthHandler := handler.NewHealthHandler(client, cfg.AuthServiceURL)
